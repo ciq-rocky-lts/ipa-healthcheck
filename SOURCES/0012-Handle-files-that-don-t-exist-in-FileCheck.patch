@@ -1,0 +1,63 @@
+From 89bca9803d92cd6977c01462e9031fa1e00c950b Mon Sep 17 00:00:00 2001
+From: Rob Crittenden <rcritten@redhat.com>
+Date: Mon, 14 Jun 2021 11:40:06 -0400
+Subject: [PATCH] Handle files that don't exist in FileCheck
+
+A raw os.stat() was called which could raise an exception if the file
+doesn't exist. Instead call os.path.exists() and if the result is False
+then raise a SUCCESS with a message that the file doesn't exist.
+
+https://github.com/freeipa/freeipa-healthcheck/issues/213
+
+Signed-off-by: Rob Crittenden <rcritten@redhat.com>
+---
+ src/ipahealthcheck/core/files.py |  7 +++++++
+ tests/test_core_files.py         | 17 +++++++++++++++++
+ 2 files changed, 24 insertions(+)
+
+diff --git a/src/ipahealthcheck/core/files.py b/src/ipahealthcheck/core/files.py
+index 9441eb2..1b208d1 100644
+--- a/src/ipahealthcheck/core/files.py
++++ b/src/ipahealthcheck/core/files.py
+@@ -23,6 +23,13 @@ class FileCheck:
+     @duration
+     def check(self):
+         for (path, owner, group, mode) in self.files:
++            if not os.path.exists(path):
++                for type in ('mode', 'owner', 'group'):
++                    key = '%s_%s' % (path.replace('/', '_'), type)
++                    yield Result(self, constants.SUCCESS, key=key,
++                                 type=type, path=path,
++                                 msg='File does not exist')
++                continue
+             stat = os.stat(path)
+             fmode = str(oct(stat.st_mode)[-4:])
+             key = '%s_mode' % path.replace('/', '_')
+diff --git a/tests/test_core_files.py b/tests/test_core_files.py
+index e6cf354..a4f25ac 100644
+--- a/tests/test_core_files.py
++++ b/tests/test_core_files.py
+@@ -105,3 +105,20 @@ def test_files_mode(mock_stat):
+     my_results = get_results(results, 'mode')
+     assert my_results.results[0].result == constants.WARNING
+     assert my_results.results[1].result == constants.WARNING
++
++
++@patch('os.path.exists')
++def test_files_not_found(mock_exists):
++    mock_exists.return_value = False
++
++    f = FileCheck()
++    f.files = files
++
++    results = capture_results(f)
++
++    for type in ('mode', 'group', 'owner'):
++        my_results = get_results(results, type)
++        assert len(my_results.results) == 4
++        for result in my_results.results:
++            assert result.result == constants.SUCCESS
++            assert result.kw.get('msg') == 'File does not exist'
+-- 
+2.26.3
+

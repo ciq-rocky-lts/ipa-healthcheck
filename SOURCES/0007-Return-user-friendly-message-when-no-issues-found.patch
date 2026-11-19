@@ -1,0 +1,30 @@
+From e23e38124098d37b514e02531341af21e6fb0688 Mon Sep 17 00:00:00 2001
+From: Rob Crittenden <rcritten@redhat.com>
+Date: Mon, 14 Jun 2021 11:37:23 -0400
+Subject: [PATCH] Return user-friendly message when no issues found
+
+Return user-friendly message instead of empty string
+when no issues found and using the "human" output type.
+
+Fixes: https://bugzilla.redhat.com/show_bug.cgi?id=1780062
+Signed-off-by: Antonio Torres <antorres@redhat.com>
+---
+ src/ipahealthcheck/core/output.py | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/ipahealthcheck/core/output.py b/src/ipahealthcheck/core/output.py
+index cfd0f94..784263d 100644
+--- a/src/ipahealthcheck/core/output.py
++++ b/src/ipahealthcheck/core/output.py
+@@ -129,6 +129,8 @@ class Human(Output):
+         super(Human, self).__init__(options)
+ 
+     def generate(self, data):
++        if not data:
++            return "No issues found.\n"
+         output = ''
+         for line in data:
+             kw = line.get('kw')
+-- 
+2.26.3
+

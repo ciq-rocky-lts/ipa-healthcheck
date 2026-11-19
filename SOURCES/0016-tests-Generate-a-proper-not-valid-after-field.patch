@@ -1,0 +1,96 @@
+From 90f0b7c16c68d1dd876fc88b56b58c04bc565230 Mon Sep 17 00:00:00 2001
+From: Stanislav Levin <slev@altlinux.org>
+Date: Fri, 6 Nov 2020 15:18:33 +0300
+Subject: [PATCH] tests: Generate a proper `not-valid-after` field
+
+Some tests assume that the mocked certificate will be valid in N
+days from now(). There was a hardcoded `not-valid-after` value
+which pointed to 20201205214850Z. So, from Nov 06 2020 the assertion
+20201205214850Z - now() < cert_expiration_days(30days) fails.
+
+Fixes: https://github.com/freeipa/freeipa-healthcheck/issues/159
+Signed-off-by: Stanislav Levin <slev@altlinux.org>
+---
+ tests/mock_certmonger.py              | 18 ++++++++++++++++--
+ tests/test_ipa_expiration.py          |  8 ++++++--
+ 3 files changed, 30 insertions(+), 8 deletions(-)
+
+diff --git a/tests/mock_certmonger.py b/tests/mock_certmonger.py
+index ab53620..8fa4d36 100644
+--- a/tests/mock_certmonger.py
++++ b/tests/mock_certmonger.py
+@@ -3,6 +3,7 @@
+ #
+ 
+ import copy
++from datetime import datetime, timedelta, timezone
+ 
+ from ipaplatform.paths import paths
+ 
+@@ -10,6 +11,8 @@ from ipaplatform.paths import paths
+ # distinct from the value from the overrident get_defaults() method.
+ template = paths.CERTMONGER_COMMAND_TEMPLATE
+ 
++CERT_EXPIRATION_DAYS = 30
++
+ pristine_cm_requests = [
+     {
+         'nickname': '1234',
+@@ -20,7 +23,11 @@ pristine_cm_requests = [
+         'cert-storage': 'FILE',
+         'cert-presave-command': template % 'renew_ra_cert_pre',
+         'cert-postsave-command': template % 'renew_ra_cert',
+-        'not-valid-after': 1024,
++        'not-valid-after': (
++            int(
++                datetime(1970, 1, 1, 0, 17, 4, tzinfo=timezone.utc).timestamp()
++            )
++        ),
+     },
+     {
+         'nickname': '5678',
+@@ -30,7 +37,14 @@ pristine_cm_requests = [
+         'template_profile': 'caIPAserviceCert',
+         'cert-storage': 'FILE',
+         'cert-postsave-command': template % 'restart_httpd',
+-        'not-valid-after': 1607204930,
++        'not-valid-after': (
++            int(
++                (
++                    datetime.now(timezone.utc) +
++                    timedelta(days=CERT_EXPIRATION_DAYS + 1)
++                ).timestamp()
++            )
++        ),
+     },
+ ]
+ 
+diff --git a/tests/test_ipa_expiration.py b/tests/test_ipa_expiration.py
+index ff3564b..fb7105b 100644
+--- a/tests/test_ipa_expiration.py
++++ b/tests/test_ipa_expiration.py
+@@ -11,7 +11,11 @@ from ipahealthcheck.ipa.certs import IPACertmongerExpirationCheck
+ from ipahealthcheck.ipa.certs import IPACAChainExpirationCheck
+ from unittest.mock import Mock, patch
+ from mock_certmonger import create_mock_dbus, _certmonger
+-from mock_certmonger import get_expected_requests, set_requests
++from mock_certmonger import (
++    get_expected_requests,
++    set_requests,
++    CERT_EXPIRATION_DAYS,
++)
+ 
+ from datetime import datetime, timedelta, timezone
+ 
+@@ -67,7 +71,7 @@ class TestExpiration(BaseTest):
+         registry.initialize(framework, config.Config)
+         f = IPACertmongerExpirationCheck(registry)
+ 
+-        f.config.cert_expiration_days = '30'
++        f.config.cert_expiration_days = str(CERT_EXPIRATION_DAYS)
+         self.results = capture_results(f)
+ 
+         assert len(self.results) == 2
+-- 
+2.31.1
+

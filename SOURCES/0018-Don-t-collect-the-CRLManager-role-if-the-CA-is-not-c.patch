@@ -1,0 +1,54 @@
+From a63d5ac05157e689e99494661240d43d131c0e91 Mon Sep 17 00:00:00 2001
+From: Rob Crittenden <rcritten@redhat.com>
+Date: Tue, 11 May 2021 13:19:41 -0400
+Subject: [PATCH] Don't collect the CRLManager role if the CA is not configured
+
+This was raising a false positive in the IPA CA-less case.
+
+https://github.com/freeipa/freeipa-healthcheck/issues/201
+
+Signed-off-by: Rob Crittenden <rcritten@redhat.com>
+---
+ src/ipahealthcheck/ipa/roles.py |  2 ++
+ tests/test_ipa_roles.py         | 12 ++++++++++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/src/ipahealthcheck/ipa/roles.py b/src/ipahealthcheck/ipa/roles.py
+index 0ff2269..aac7b80 100644
+--- a/src/ipahealthcheck/ipa/roles.py
++++ b/src/ipahealthcheck/ipa/roles.py
+@@ -25,6 +25,8 @@ class IPACRLManagerCheck(IPAPlugin):
+     """
+     @duration
+     def check(self):
++        if not self.ca.is_configured():
++            return
+         try:
+             enabled = self.ca.is_crlgen_enabled()
+         except AttributeError:
+diff --git a/tests/test_ipa_roles.py b/tests/test_ipa_roles.py
+index 21c0069..7c4a2d1 100644
+--- a/tests/test_ipa_roles.py
++++ b/tests/test_ipa_roles.py
+@@ -48,6 +48,18 @@ class TestCRLManagerRole(BaseTest):
+         assert result.check == 'IPACRLManagerCheck'
+         assert result.kw.get('crlgen_enabled') is True
+ 
++    @patch('ipaserver.install.cainstance.CAInstance')
++    def test_crlmanager_no_ca(self, mock_ca):
++        """There should be no CRLManagerCheck without a CA"""
++        mock_ca.return_value = CAInstance(False)
++        framework = object()
++        registry.initialize(framework, config.Config)
++        f = IPACRLManagerCheck(registry)
++
++        self.results = capture_results(f)
++
++        assert len(self.results) == 0
++
+ 
+ class TestRenewalMaster(BaseTest):
+     def test_renewal_master_not_set(self):
+-- 
+2.31.1
+

@@ -1,0 +1,82 @@
+From eb377fed539e44194fb1ad822c0d4c6e9ea38d03 Mon Sep 17 00:00:00 2001
+From: Rob Crittenden <rcritten@redhat.com>
+Date: Tue, 11 May 2021 13:26:00 -0400
+Subject: [PATCH] Filter out the pki healthcheck sources if IPA CA is not
+ installed
+
+The pki checks spew the error "Invalid PKI instance: pki-tomcat" so
+we need to suppress them in the IPA CA-less installation case.
+
+So if the IPA CA is not configured then don't register the
+pki sources.
+
+A side-effect is that to user the sources will not be listed at
+all in this case.
+
+This should not affect pki-healthcheck and it will continue to
+return errors in the unconfigured case.
+
+https://github.com/freeipa/freeipa-healthcheck/issues/201
+
+Signed-off-by: Rob Crittenden <rcritten@redhat.com>
+---
+ src/ipahealthcheck/core/core.py  | 13 +++++++++++++
+ src/ipahealthcheck/ipa/plugin.py |  4 ++++
+ 2 files changed, 17 insertions(+)
+
+diff --git a/src/ipahealthcheck/core/core.py b/src/ipahealthcheck/core/core.py
+index eaa2d9c..a6b4fe8 100644
+--- a/src/ipahealthcheck/core/core.py
++++ b/src/ipahealthcheck/core/core.py
+@@ -281,6 +281,13 @@ class RunChecks:
+         if rval is not None:
+             return rval
+ 
++        # If we have IPA configured without a CA then we want to skip
++        # the pkihealthcheck plugins otherwise they will generated a
++        # lot of false positives. The IPA plugins are loaded first so
++        # which should set ca_configured in its registry to True or
++        # False. We will skip the pkihealthcheck plugins only if
++        # ca_configured is False which means that it was set by IPA.
++        ca_configured = False
+         for name, registry in find_registries(self.entry_points).items():
+             try:
+                 registry.initialize(framework, config, options)
+@@ -292,6 +299,12 @@ class RunChecks:
+                 except Exception as e:
+                     logger.error("Unable to initialize %s: %s" % (name, e))
+                     continue
++            if hasattr(registry, 'ca_configured'):
++                ca_configured = registry.ca_configured
++        for name, registry in find_registries(self.entry_points).items():
++            if 'pkihealthcheck' in name and ca_configured is False:
++                logger.debug('IPA CA is not configured, skipping %s', name)
++                continue
+             for plugin in find_plugins(name, registry):
+                 plugins.append(plugin)
+ 
+diff --git a/src/ipahealthcheck/ipa/plugin.py b/src/ipahealthcheck/ipa/plugin.py
+index 67d93e5..debb1bb 100644
+--- a/src/ipahealthcheck/ipa/plugin.py
++++ b/src/ipahealthcheck/ipa/plugin.py
+@@ -35,6 +35,7 @@ class IPARegistry(Registry):
+         super(IPARegistry, self).__init__()
+         self.trust_agent = False
+         self.trust_controller = False
++        self.ca_configured = False
+ 
+     def initialize(self, framework, config, options=None):
+         super(IPARegistry, self).initialize(framework, config)
+@@ -58,6 +59,9 @@ class IPARegistry(Registry):
+                 logging.debug('Failed to connect to LDAP: %s', e)
+             return
+ 
++        ca = cainstance.CAInstance(api.env.realm, host_name=api.env.host)
++        self.ca_configured = ca.is_configured()
++
+         # This package is pulled in when the trust package is installed
+         # and is required to lookup trust users. If this is not installed
+         # then it can be inferred that trust is not enabled.
+-- 
+2.31.1
+

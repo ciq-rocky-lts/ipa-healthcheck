@@ -1,0 +1,71 @@
+From 235198b41a0932a7a190124fff5f8c1afa5d6679 Mon Sep 17 00:00:00 2001
+From: Rob Crittenden <rcritten@redhat.com>
+Date: Wed, 5 May 2021 15:35:19 -0400
+Subject: [PATCH] Add service check dependencies
+
+Since 389-ds is the heart of IPA there may not be a point in checking
+all dependent services. ipa-dnskeysyncd in particular doesn't like
+when it can't connect and tries to restart itself multiple times.
+
+Note that this currently works because the services are sorted
+alphabetically and dirsrv appears near the top. Re-ordering may be
+necessary in the future.
+
+I'm choosing not to add dirsrv to the other services because they
+return cleanly if it is not available.
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1776687
+
+Signed-off-by: Rob Crittenden <rcritten@redhat.com>
+---
+ src/ipahealthcheck/core/core.py     | 20 ++++++++++++++++++++
+ src/ipahealthcheck/meta/services.py |  2 ++
+ 2 files changed, 22 insertions(+)
+
+diff --git a/src/ipahealthcheck/core/core.py b/src/ipahealthcheck/core/core.py
+index a4af690..eaa2d9c 100644
+--- a/src/ipahealthcheck/core/core.py
++++ b/src/ipahealthcheck/core/core.py
+@@ -81,6 +81,26 @@ def run_service_plugins(plugins, source, check):
+         if not isinstance(plugin, ServiceCheck):
+             continue
+ 
++        # Try to save some time to not check dependent services if the
++        # parent is down.
++        if not set(plugin.requires).issubset(available):
++            # A required service is not available. Either it hasn't been
++            # checked yet or it isn't running. If not running break.
++            running = True
++            for result in results.results:
++                if result.check in plugin.requires:
++                    # if not in available but in results the service failed
++                    running = False
++                    break
++            if not running:
++                logger.debug(
++                    'Skipping %s:%s because %s service(s) not running',
++                    plugin.__class__.__module__,
++                    plugin.__class__.__name__,
++                    ', '.join(set(plugin.requires) - set(available))
++                )
++                continue
++
+         logger.debug('Calling check %s', plugin)
+         for result in plugin.check():
+             # always run the service checks so dependencies work
+diff --git a/src/ipahealthcheck/meta/services.py b/src/ipahealthcheck/meta/services.py
+index a987108..5d80728 100644
+--- a/src/ipahealthcheck/meta/services.py
++++ b/src/ipahealthcheck/meta/services.py
+@@ -92,6 +92,8 @@ class ipa_dnskeysyncd(IPAServiceCheck):
+     def check(self):
+         self.service_name = 'ipa-dnskeysyncd'
+ 
++        requires = ('dirsrv',)
++
+         if not bindinstance.named_conf_exists():
+             return ()
+ 
+-- 
+2.31.1
+

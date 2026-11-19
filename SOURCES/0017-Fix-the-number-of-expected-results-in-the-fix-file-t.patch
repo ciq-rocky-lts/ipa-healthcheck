@@ -1,0 +1,25 @@
+From bfcf6c0ebe7522cdc7e0c4e3aee695752ea3f489 Mon Sep 17 00:00:00 2001
+From: root <root@ipa.example.test>
+Date: Thu, 7 Oct 2021 18:14:03 -0400
+Subject: [PATCH] Fix the number of expected results in the fix file test
+
+---
+ tests/test_core_files.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/test_core_files.py b/tests/test_core_files.py
+index a4f25ac..8257f40 100644
+--- a/tests/test_core_files.py
++++ b/tests/test_core_files.py
+@@ -118,7 +118,7 @@ def test_files_not_found(mock_exists):
+ 
+     for type in ('mode', 'group', 'owner'):
+         my_results = get_results(results, type)
+-        assert len(my_results.results) == 4
++        assert len(my_results.results) == 2
+         for result in my_results.results:
+             assert result.result == constants.SUCCESS
+             assert result.kw.get('msg') == 'File does not exist'
+-- 
+2.27.0
+

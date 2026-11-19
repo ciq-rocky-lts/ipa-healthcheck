@@ -1,0 +1,90 @@
+From 5efeafa16a893cb6277ece4d573184bb64ee2744 Mon Sep 17 00:00:00 2001
+From: Rob Crittenden <rcritten@redhat.com>
+Date: Mon, 30 Nov 2020 15:06:03 -0500
+Subject: [PATCH] result names are not translated when reading input from json
+ file
+
+The strings were being retained so when processing the results to
+determine the return code it was always a 1 because none of
+the values were being translated. It was always comparing
+the string like 'SUCCESS' to constants.SUCCESS which is 0.
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1866558
+---
+ src/ipahealthcheck/core/constants.py | 20 +++++++++++++++++++-
+ src/ipahealthcheck/core/plugin.py    |  4 ++--
+ tests/test_results.py                |  8 ++++++++
+ 3 files changed, 29 insertions(+), 3 deletions(-)
+
+diff --git a/src/ipahealthcheck/core/constants.py b/src/ipahealthcheck/core/constants.py
+index a55469c..b6ee029 100644
+--- a/src/ipahealthcheck/core/constants.py
++++ b/src/ipahealthcheck/core/constants.py
+@@ -36,7 +36,25 @@ def getLevelName(level):
+     is passed in instead the corresponding string representation is
+     returned.
+     """
+-    return _levelToName.get(level) or _nameToLevel.get(level) or level
++    name = _levelToName.get(level) or _nameToLevel.get(level)
++    if name is not None:
++        return name
++
++    return level
++
++
++def getLevel(name):
++    """
++    Translate between level text and their numeric constants
++
++    If the level is one of the predefined levels then returns the
++    corresponding number.
++    """
++    level = _nameToLevel.get(name)
++    if level is not None:
++        return level
++
++    return name
+ 
+ 
+ CONFIG_FILE = '/etc/ipahealthcheck/ipahealthcheck.conf'
+diff --git a/src/ipahealthcheck/core/plugin.py b/src/ipahealthcheck/core/plugin.py
+index 7ac923a..26dddd4 100644
+--- a/src/ipahealthcheck/core/plugin.py
++++ b/src/ipahealthcheck/core/plugin.py
+@@ -6,7 +6,7 @@ import uuid
+ from datetime import datetime
+ from functools import wraps
+ 
+-from ipahealthcheck.core.constants import getLevelName
++from ipahealthcheck.core.constants import getLevelName, getLevel
+ 
+ 
+ def duration(f):
+@@ -204,7 +204,7 @@ def json_to_results(data):
+     results = Results()
+ 
+     for line in data:
+-        result = line.pop('result')
++        result = getLevel(line.pop('result'))
+         source = line.pop('source')
+         check = line.pop('check')
+         duration = line.pop('duration')
+diff --git a/tests/test_results.py b/tests/test_results.py
+index dd6e8fd..99c18d7 100644
+--- a/tests/test_results.py
++++ b/tests/test_results.py
+@@ -69,3 +69,11 @@ def test_Result():
+         assert x['result'] in (constants.getLevelName(constants.SUCCESS),
+                                constants.getLevelName(constants.CRITICAL))
+         assert len(x['kw']) == 0
++
++
++def test_getLevel():
++    assert constants.getLevel('SUCCESS') == constants.SUCCESS
++    assert constants.getLevel('WARNING') == constants.WARNING
++    assert constants.getLevel('ERROR') == constants.ERROR
++    assert constants.getLevel('CRITICAL') == constants.CRITICAL
++    assert constants.getLevel('FOO') == 'FOO'
+-- 
+2.25.4
+
